@@ -5,6 +5,7 @@
 Knowledge-Agent 将企业私有文档转化为可安全检索、可追溯引用的知识库，覆盖文档持久化导入、BGE-M3
 混合检索、流式 Agent 回答、OIDC 登录、多租户隔离、可观测性与统一 Web 控制台。
 
+[GitHub 仓库](https://github.com/Fanxingwow/Knowledge-Agent) ·
 [English](README.md) · [架构](docs/architecture.md) ·
 [配置](docs/configuration.md) · [部署](docs/deployment.md) ·
 [参与贡献](CONTRIBUTING.md)
@@ -58,7 +59,7 @@ flowchart LR
 ### 1. 准备配置
 
 ```bash
-git clone <你的仓库或 Fork 地址>
+git clone https://github.com/Fanxingwow/Knowledge-Agent.git
 cd Knowledge-Agent
 cp deploy/compose.env.example deploy/compose.env
 ```

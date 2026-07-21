@@ -12,6 +12,7 @@ knowledge base. It combines durable document ingestion, BGE-M3 hybrid
 retrieval, citation-aware agent answers, OIDC login, tenant isolation,
 observable infrastructure, and a unified web console.
 
+[GitHub Repository](https://github.com/Fanxingwow/Knowledge-Agent) ·
 [简体中文](README.zh-CN.md) · [Architecture](docs/architecture.md) ·
 [Configuration](docs/configuration.md) · [Deployment](docs/deployment.md) ·
 [Contributing](CONTRIBUTING.md)
@@ -94,7 +95,7 @@ The architecture and trust boundaries are documented in
 ### 1. Prepare configuration
 
 ```bash
-git clone <your-fork-or-repository-url>
+git clone https://github.com/Fanxingwow/Knowledge-Agent.git
 cd Knowledge-Agent
 cp deploy/compose.env.example deploy/compose.env
 ```
