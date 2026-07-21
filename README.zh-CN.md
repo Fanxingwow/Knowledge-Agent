@@ -88,6 +88,111 @@ curl http://127.0.0.1:8000/health/ready
 `IMPORT_ENABLED` 和 `SEARCH_ENABLED` 改为 `true`。完整说明见
 [docs/configuration.md](docs/configuration.md)。
 
+## 服务器部署：CPU 与 NVIDIA GPU
+
+Linux 默认镜像是 CPU 版本。GPU 覆盖文件会在同一个应用镜像中换装官方 CUDA 版 PyTorch，
+并为 `api` 容器分配一张 NVIDIA GPU。该选择只加速本地 BGE-M3 向量化和可选的本地重排器；
+如果 LLM 使用外部 API，则不会因为启用 GPU 而改变。
+
+| 模式 | 建议服务器配置 | Compose 文件 | 向量模型配置 |
+| --- | --- | --- | --- |
+| CPU | 4 核以上、16 GB 以上内存 | 仅基础 Compose | `cpu`、FP32 |
+| NVIDIA GPU | 8 GB 以上显存、16 GB 以上内存 | 基础 Compose + `compose.gpu.yaml` | `cuda:0`、FP16 |
+
+两种模式都需要把完整的 `BAAI/bge-m3` 模型目录放到 `BGE_M3_HOST_PATH` 指定的位置，并先在
+私有环境文件中配置随机密钥、MinerU Token 和 LLM 密钥。真实环境文件不得提交到 Git。
+
+### CPU 版本部署
+
+部署包含 MongoDB、Redis、MinIO 和 Milvus 的完整服务栈：
+
+```bash
+cp deploy/compose.env.example deploy/compose.env
+# 编辑 deploy/compose.env，并保持 BGE_DEVICE=cpu、BGE_FP16=false。
+
+docker compose \
+  --env-file deploy/compose.env \
+  -f compose.yaml \
+  config --quiet
+
+docker compose \
+  --env-file deploy/compose.env \
+  -f compose.yaml \
+  up -d --build
+```
+
+如果服务器已经运行 MinIO 和 Milvus，则使用复用模式：
+
+```bash
+cp deploy/server-reuse.env.example deploy/server-reuse.env
+
+docker compose \
+  --env-file deploy/server-reuse.env \
+  -f compose.server-reuse.yaml \
+  up -d --build
+```
+
+CPU 是兼容性最好的默认模式。CPU 环境不要启用 FP16；大型 PDF 手册的向量化可能需要较长时间。
+
+### NVIDIA GPU 版本部署
+
+服务器需要安装兼容的 NVIDIA 驱动和
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，
+先确认宿主机和 Docker 都可以识别 GPU：
+
+```bash
+nvidia-smi
+docker run --rm --gpus all \
+  nvidia/cuda:12.9.0-base-ubuntu22.04 nvidia-smi
+```
+
+GPU 覆盖文件默认安装 PyTorch CUDA 13.0（`cu130`）版本。如果服务器驱动或旧型号 GPU 需要
+CUDA 12.6，请在私有环境文件中设置 `PYTORCH_GPU_VARIANT=cu126`。目前支持 `cu126`、
+`cu128` 和 `cu130`。
+
+完整服务栈的 GPU 启动命令：
+
+```bash
+docker compose \
+  --env-file deploy/compose.env \
+  -f compose.yaml \
+  -f compose.gpu.yaml \
+  config --quiet
+
+docker compose \
+  --env-file deploy/compose.env \
+  -f compose.yaml \
+  -f compose.gpu.yaml \
+  up -d --build
+```
+
+复用服务器已有 MinIO 和 Milvus 时：
+
+```bash
+docker compose \
+  --env-file deploy/server-reuse.env \
+  -f compose.server-reuse.yaml \
+  -f compose.gpu.yaml \
+  up -d --build
+```
+
+进入 API 容器验证 CUDA 版 PyTorch 和 GPU：
+
+```bash
+docker compose \
+  --env-file deploy/compose.env \
+  -f compose.yaml \
+  -f compose.gpu.yaml \
+  exec -T api python -c \
+  'import torch; print(torch.__version__); print(torch.cuda.get_device_name(0)); assert torch.cuda.is_available()'
+
+curl -fsS http://127.0.0.1:8000/health/ready
+```
+
+服务器复用模式请把基础文件替换为 `compose.server-reuse.yaml`，健康检查端口使用 `8010`。
+GPU 第一次构建需要下载较大的 CUDA 版 PyTorch 依赖，耗时明显长于增量构建。生产加固和运维说明见
+[docs/deployment.md](docs/deployment.md)。
+
 ## 开启完整 RAG 链路
 
 1. 在 Git 仓库外下载 `BAAI/bge-m3`，通过 `BGE_M3_HOST_PATH` 挂载。

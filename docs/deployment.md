@@ -1,5 +1,36 @@
 # Deployment
 
+## CPU and GPU image policy
+
+Linux builds are CPU-only unless `compose.gpu.yaml` is explicitly applied.
+The overlay selects an official CUDA PyTorch wheel, configures BGE-M3 for
+`cuda:0`/FP16, and reserves one NVIDIA GPU for the API container. It can be
+combined with either base Compose file:
+
+```bash
+# CPU, self-contained dependencies
+docker compose --env-file deploy/compose.env \
+  -f compose.yaml up -d --build
+
+# GPU, self-contained dependencies
+docker compose --env-file deploy/compose.env \
+  -f compose.yaml -f compose.gpu.yaml up -d --build
+
+# CPU, existing MinIO/Milvus
+docker compose --env-file deploy/server-reuse.env \
+  -f compose.server-reuse.yaml up -d --build
+
+# GPU, existing MinIO/Milvus
+docker compose --env-file deploy/server-reuse.env \
+  -f compose.server-reuse.yaml -f compose.gpu.yaml up -d --build
+```
+
+GPU hosts require the NVIDIA driver and NVIDIA Container Toolkit. The default
+GPU wheel is `cu130`; set `PYTORCH_GPU_VARIANT=cu126` or `cu128` when the host
+compatibility matrix requires it. Always validate `torch.cuda.is_available()`
+inside the running API container. The GPU overlay accelerates local embeddings
+and the optional reranker, not an external LLM endpoint.
+
 ## Local Compose stack
 
 ```bash

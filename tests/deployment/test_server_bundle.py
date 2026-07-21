@@ -11,7 +11,10 @@ def test_server_bundle_is_secret_free_and_manifest_is_valid(tmp_path: Path) -> N
 
     assert zip_path.is_file()
     assert (bundle_dir / "Dockerfile").is_file()
+    assert (bundle_dir / "compose.gpu.yaml").is_file()
     assert (bundle_dir / "compose.server-reuse.yaml").is_file()
+    assert (bundle_dir / "README.zh-CN.md").is_file()
+    assert (bundle_dir / "docs/deployment.md").is_file()
     assert (bundle_dir / "app/gateways/mineru_gateway.py").is_file()
     assert (bundle_dir / "SERVER_UPLOAD_README.md").is_file()
     assert not (bundle_dir / ".env").exists()

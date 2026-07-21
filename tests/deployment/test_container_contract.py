@@ -206,6 +206,36 @@ def test_compose_builds_use_the_configured_debian_mirror() -> None:
         assert args["DEBIAN_MIRROR"] == expected
 
 
+def test_gpu_overlay_builds_cuda_pytorch_and_reserves_one_nvidia_gpu() -> None:
+    services = _services("compose.gpu.yaml")
+    api = services["api"]
+    build = api.get("build")
+    environment = api.get("environment")
+    deployment = api.get("deploy")
+
+    assert isinstance(build, Mapping)
+    assert isinstance(environment, Mapping)
+    assert isinstance(deployment, Mapping)
+    assert build["args"] == {
+        "PYTORCH_VARIANT": "${PYTORCH_GPU_VARIANT:-cu130}",
+        "PYTORCH_INDEX_BASE": "${PYTORCH_INDEX_BASE:-https://download.pytorch.org/whl}",
+    }
+    assert environment == {
+        "BGE_DEVICE": "${GPU_BGE_DEVICE:-cuda:0}",
+        "BGE_FP16": "${GPU_BGE_FP16:-true}",
+        "BGE_RERANKER_DEVICE": "${GPU_BGE_RERANKER_DEVICE:-cuda:0}",
+        "BGE_RERANKER_FP16": "${GPU_BGE_RERANKER_FP16:-true}",
+    }
+    devices = deployment["resources"]["reservations"]["devices"]
+    assert devices == [
+        {
+            "driver": "nvidia",
+            "count": 1,
+            "capabilities": ["gpu"],
+        }
+    ]
+
+
 def test_server_reuse_requires_application_credentials_not_external_root_secrets() -> None:
     services = _services("compose.server-reuse.yaml")
     environment = services["api"].get("environment")
@@ -354,6 +384,10 @@ def test_dockerfile_has_reproducible_non_root_runtime_contract() -> None:
     assert "UV_HTTP_TIMEOUT=300 \\" in dockerfile
     assert "UV_HTTP_RETRIES=10 \\" in dockerfile
     assert "UV_CONCURRENT_DOWNLOADS=4" in dockerfile
+    assert "ARG PYTORCH_VARIANT=cpu" in dockerfile
+    assert "cu126|cu128|cu130" in dockerfile
+    assert '"torch==2.10.0"' in dockerfile
+    assert "--reinstall-package torch" in dockerfile
 
 
 def test_linux_uses_cpu_pytorch_while_windows_keeps_cuda_development() -> None:

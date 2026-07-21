@@ -14,11 +14,13 @@ ROOT_FILES = (
     ".dockerignore",
     "Dockerfile",
     "README.md",
+    "README.zh-CN.md",
+    "compose.gpu.yaml",
     "compose.server-reuse.yaml",
     "pyproject.toml",
     "uv.lock",
 )
-ROOT_DIRECTORIES = ("app", "deploy", "prompts", "scripts")
+ROOT_DIRECTORIES = ("app", "deploy", "docs", "prompts", "scripts")
 UPLOAD_README = "deploy/server-upload/README.md"
 FORBIDDEN_NAMES = {".env", "compose.env", "server-reuse.env"}
 FORBIDDEN_SUFFIXES = {".key", ".pem", ".p12", ".pfx", ".safetensors", ".pt", ".pth", ".onnx"}
@@ -122,7 +124,7 @@ def build_bundle(
 
     revision = _git("rev-parse", "--short=12", "HEAD")
     full_revision = _git("rev-parse", "HEAD")
-    bundle_dir = output_root.resolve() / f"knowledge-agent-server-cpu-{revision}"
+    bundle_dir = output_root.resolve() / f"knowledge-agent-server-{revision}"
     zip_path = bundle_dir.with_suffix(".zip")
     if bundle_dir.exists() or zip_path.exists():
         raise FileExistsError(f"Bundle output already exists: {bundle_dir}")
@@ -138,7 +140,8 @@ def build_bundle(
     shutil.copy2(upload_readme, bundle_dir / "SERVER_UPLOAD_README.md")
     release = {
         "schema_version": 1,
-        "profile": "linux-cpu-server-reuse",
+        "profile": "linux-server-reuse",
+        "accelerators": ["cpu", "nvidia-gpu"],
         "source_commit": full_revision,
         "source_dirty": allow_dirty,
     }
@@ -153,7 +156,7 @@ def build_bundle(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build the secret-free Linux CPU server upload bundle.")
+    parser = argparse.ArgumentParser(description="Build the secret-free Linux CPU/GPU server upload bundle.")
     parser.add_argument(
         "--output-root",
         type=Path,

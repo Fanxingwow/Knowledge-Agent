@@ -9,6 +9,8 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
 
 ARG DEBIAN_MIRROR
+ARG PYTORCH_VARIANT=cpu
+ARG PYTORCH_INDEX_BASE=https://download.pytorch.org/whl
 
 ENV DEBIAN_FRONTEND=noninteractive \
     UV_COMPILE_BYTECODE=1 \
@@ -34,6 +36,30 @@ COPY pyproject.toml uv.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
+
+# The frozen Linux environment is CPU-only by default. GPU builds deliberately
+# replace only the PyTorch runtime packages from an official CUDA wheel index;
+# all other application dependencies remain locked by uv.lock.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    case "${PYTORCH_VARIANT}" in \
+        cpu) \
+            ;; \
+        cu126|cu128|cu130) \
+            uv pip install \
+                --python /app/.venv/bin/python \
+                --default-index "${PYTORCH_INDEX_BASE%/}/${PYTORCH_VARIANT}" \
+                --reinstall-package torch \
+                --reinstall-package torchvision \
+                --reinstall-package torchaudio \
+                "torch==2.10.0" \
+                "torchvision==0.25.0" \
+                "torchaudio==2.10.0" \
+            ;; \
+        *) \
+            echo "Unsupported PYTORCH_VARIANT=${PYTORCH_VARIANT}" >&2; \
+            exit 64 \
+            ;; \
+    esac
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 

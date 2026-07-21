@@ -1,12 +1,14 @@
-# CPU server upload bundle
+# CPU/GPU server upload bundle
 
-This bundle deploys the Linux CPU image while reusing MinIO and Milvus that
-already run on the Docker host. It never contains `.env` or
-`deploy/server-reuse.env`.
+This bundle deploys either the default Linux CPU image or the optional NVIDIA
+GPU image while reusing MinIO and Milvus that already run on the Docker host.
+It never contains `.env` or `deploy/server-reuse.env`.
 
-Ordinary Python packages are locked to the Tencent Cloud PyPI mirror. PyTorch
-continues to use the official CPU index. The image build allows slow links up
-to 300 seconds per HTTP read and retains the uv download cache between builds.
+Ordinary Python packages are locked to the Tencent Cloud PyPI mirror. CPU
+builds use the official PyTorch CPU index. `compose.gpu.yaml` replaces those
+three runtime wheels with an official CUDA build and assigns one NVIDIA GPU to
+the API container. The image build allows slow links up to 300 seconds per
+HTTP read and retains the uv download cache between builds.
 
 MongoDB is pinned to `mongo:7.0.37-jammy`. MongoDB 8.0 and newer can crash on
 Linux 6.19 and later because of an upstream TCMalloc incompatibility. Never
@@ -88,7 +90,7 @@ docker compose \
   config --quiet
 ```
 
-Build the CPU image, then start the application:
+Build and start the default CPU image:
 
 ```bash
 docker compose \
@@ -100,6 +102,27 @@ docker compose \
   -f compose.server-reuse.yaml \
   --env-file deploy/server-reuse.env \
   up -d
+```
+
+For an NVIDIA GPU server, first install a compatible NVIDIA driver and NVIDIA
+Container Toolkit. The default GPU build uses `cu130`; add
+`PYTORCH_GPU_VARIANT=cu126` to `deploy/server-reuse.env` when an older driver
+or GPU requires CUDA 12.6. Build and start with the overlay:
+
+```bash
+nvidia-smi
+
+docker compose \
+  -f compose.server-reuse.yaml \
+  -f compose.gpu.yaml \
+  --env-file deploy/server-reuse.env \
+  config --quiet
+
+docker compose \
+  -f compose.server-reuse.yaml \
+  -f compose.gpu.yaml \
+  --env-file deploy/server-reuse.env \
+  up -d --build
 ```
 
 Check status, PyTorch profile, and health:
@@ -142,9 +165,11 @@ letting the user set a password. Keycloak's native flow uses a verification
 link, not a numeric email OTP. Administrators can still manage users at
 `http://127.0.0.1:8081/admin/` in the `enterprise-knowledge` Realm.
 
-The PyTorch check must report a `+cpu` version and `False`. Do not install
-NVIDIA utilities on this CPU server. Do not run `docker compose down -v`
-unless deletion of this application's MongoDB and Redis data is intentional.
+The PyTorch check must report a `+cpu` version and `False` in CPU mode. In GPU
+mode it must report a CUDA variant and `True`; additionally print
+`torch.cuda.get_device_name(0)` to confirm the assigned device. Do not run
+`docker compose down -v` unless deletion of this application's MongoDB and
+Redis data is intentional.
 
 `MANIFEST.sha256` records the expected SHA-256 digest of every bundle file.
 Validate it on Ubuntu with:

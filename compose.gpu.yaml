@@ -1,0 +1,21 @@
+# NVIDIA GPU overlay for either compose.yaml or compose.server-reuse.yaml.
+# The base env file still owns the shared image tag and all application secrets.
+services:
+  api:
+    build:
+      args:
+        PYTORCH_VARIANT: ${PYTORCH_GPU_VARIANT:-cu130}
+        PYTORCH_INDEX_BASE: ${PYTORCH_INDEX_BASE:-https://download.pytorch.org/whl}
+    environment:
+      BGE_DEVICE: ${GPU_BGE_DEVICE:-cuda:0}
+      BGE_FP16: ${GPU_BGE_FP16:-true}
+      BGE_RERANKER_DEVICE: ${GPU_BGE_RERANKER_DEVICE:-cuda:0}
+      BGE_RERANKER_FP16: ${GPU_BGE_RERANKER_FP16:-true}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
