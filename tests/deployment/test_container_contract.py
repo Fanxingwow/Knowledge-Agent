@@ -195,6 +195,32 @@ def test_server_reuse_defaults_avoid_host_port_conflicts_and_preserve_hardening(
     assert all("container_name" not in service for service in services.values())
 
 
+def test_documented_access_ports_match_both_compose_profiles() -> None:
+    full = _services()
+    reused = _services("compose.server-reuse.yaml")
+
+    assert full["api"]["ports"] == ["${API_BIND_ADDRESS:-0.0.0.0}:${API_PORT:-8000}:8000"]
+    assert full["minio"]["ports"] == [
+        "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000",
+        "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001",
+    ]
+    assert full["milvus"]["ports"] == [
+        "${MILVUS_BIND_ADDRESS:-127.0.0.1}:${MILVUS_PORT:-19530}:19530",
+        "${MILVUS_BIND_ADDRESS:-127.0.0.1}:${MILVUS_HEALTH_PORT:-9091}:9091",
+    ]
+    assert reused["api"]["ports"] == ["${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8010}:8000"]
+    assert reused["keycloak"]["ports"] == ["${KEYCLOAK_BIND_ADDRESS:-127.0.0.1}:${KEYCLOAK_PORT:-8081}:8080"]
+
+    for filename in ("README.md", "README.zh-CN.md"):
+        readme = (PROJECT_ROOT / filename).read_text(encoding="utf-8")
+        assert "http://127.0.0.1:8000/console" in readme
+        assert "http://127.0.0.1:8010/console" in readme
+        assert "http://127.0.0.1:8081/admin/" in readme
+        assert "http://127.0.0.1:9001" in readme
+        assert "127.0.0.1:19530" in readme
+        assert "http://127.0.0.1:9091/healthz" in readme
+
+
 def test_compose_builds_use_the_configured_debian_mirror() -> None:
     expected = "${DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}"
 

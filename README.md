@@ -114,18 +114,32 @@ docker compose --env-file deploy/compose.env ps
 
 ### 3. Verify
 
+The commands in this Quick start use the self-contained `compose.yaml`, whose
+default API port is `8000`:
+
 ```bash
 curl http://127.0.0.1:8000/health/live
 curl http://127.0.0.1:8000/health/ready
 ```
 
-Open:
+Use the access addresses for the Compose mode you actually started:
 
-- Web console: <http://127.0.0.1:8000/console>
-- OpenAPI: <http://127.0.0.1:8000/docs>
-- MinIO console: <http://127.0.0.1:9001>
-- Milvus gRPC endpoint: `127.0.0.1:19530`
-- Milvus health endpoint: <http://127.0.0.1:9091/healthz>
+| Service | Self-contained `compose.yaml` | Server-reuse `compose.server-reuse.yaml` |
+| --- | --- | --- |
+| Web console | <http://127.0.0.1:8000/console> | <http://127.0.0.1:8010/console> |
+| OpenAPI | <http://127.0.0.1:8000/docs> | <http://127.0.0.1:8010/docs> |
+| Liveness | <http://127.0.0.1:8000/health/live> | <http://127.0.0.1:8010/health/live> |
+| Readiness | <http://127.0.0.1:8000/health/ready> | <http://127.0.0.1:8010/health/ready> |
+| Keycloak admin | Not created in this mode | <http://127.0.0.1:8081/admin/> |
+| MinIO console | <http://127.0.0.1:9001> | Existing MinIO console address; not created by this stack |
+| Milvus gRPC from host | `127.0.0.1:19530` | Existing Milvus host address |
+| Milvus health | <http://127.0.0.1:9091/healthz> | Existing Milvus health address |
+| Attu | Not bundled | Not bundled; use the address of your separately deployed Attu |
+
+The server-reuse example deliberately uses API port `8010` because an existing
+Attu installation may already occupy host port `8000`. Its API and Keycloak
+ports bind to `127.0.0.1` by default, so access from a workstation requires an
+SSH tunnel or a production reverse proxy.
 
 ### Milvus connection addresses
 
@@ -195,6 +209,8 @@ docker compose \
   --env-file deploy/server-reuse.env \
   -f compose.server-reuse.yaml \
   up -d --build
+
+curl -fsS http://127.0.0.1:8010/health/ready
 ```
 
 CPU mode is the compatibility default. Keep FP16 disabled on CPU; importing a
@@ -255,6 +271,8 @@ docker compose \
   'import torch; print(torch.__version__); print(torch.cuda.get_device_name(0)); assert torch.cuda.is_available()'
 
 curl -fsS http://127.0.0.1:8000/health/ready
+# For compose.server-reuse.yaml, use port 8010 instead:
+curl -fsS http://127.0.0.1:8010/health/ready
 ```
 
 Use the matching server-reuse file and port `8010` for the server-reuse mode.

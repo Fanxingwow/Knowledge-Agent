@@ -76,16 +76,30 @@ docker compose --env-file deploy/compose.env ps
 
 ### 3. 验证并访问
 
+本节快速开始使用的是完整自建服务栈 `compose.yaml`，因此 API 默认端口是 `8000`：
+
 ```bash
 curl http://127.0.0.1:8000/health/live
 curl http://127.0.0.1:8000/health/ready
 ```
 
-- Web 控制台：<http://127.0.0.1:8000/console>
-- OpenAPI：<http://127.0.0.1:8000/docs>
-- MinIO 控制台：<http://127.0.0.1:9001>
-- Milvus gRPC 地址：`127.0.0.1:19530`
-- Milvus 健康检查：<http://127.0.0.1:9091/healthz>
+请根据实际启动的 Compose 模式选择访问地址：
+
+| 服务 | 完整自建 `compose.yaml` | 服务器复用 `compose.server-reuse.yaml` |
+| --- | --- | --- |
+| Web 控制台 | <http://127.0.0.1:8000/console> | <http://127.0.0.1:8010/console> |
+| OpenAPI | <http://127.0.0.1:8000/docs> | <http://127.0.0.1:8010/docs> |
+| 存活检查 | <http://127.0.0.1:8000/health/live> | <http://127.0.0.1:8010/health/live> |
+| 就绪检查 | <http://127.0.0.1:8000/health/ready> | <http://127.0.0.1:8010/health/ready> |
+| Keycloak 管理后台 | 此模式不创建 | <http://127.0.0.1:8081/admin/> |
+| MinIO 控制台 | <http://127.0.0.1:9001> | 使用服务器已有 MinIO 的控制台地址，本栈不创建 |
+| 宿主机访问 Milvus gRPC | `127.0.0.1:19530` | 使用服务器已有 Milvus 的宿主机地址 |
+| Milvus 健康检查 | <http://127.0.0.1:9091/healthz> | 使用服务器已有 Milvus 的健康检查地址 |
+| Attu | 未内置 | 未内置；使用单独部署的 Attu 地址 |
+
+服务器复用模式特意使用 `8010`，因为服务器上已有的 Attu 可能已经占用 `8000`。该模式的 API
+和 Keycloak 默认只绑定 `127.0.0.1`；从个人电脑访问时需要建立 SSH 隧道，生产环境则应使用
+HTTPS 反向代理。
 
 ### Milvus 连接地址
 
@@ -149,6 +163,8 @@ docker compose \
   --env-file deploy/server-reuse.env \
   -f compose.server-reuse.yaml \
   up -d --build
+
+curl -fsS http://127.0.0.1:8010/health/ready
 ```
 
 CPU 是兼容性最好的默认模式。CPU 环境不要启用 FP16；大型 PDF 手册的向量化可能需要较长时间。
@@ -206,6 +222,8 @@ docker compose \
   'import torch; print(torch.__version__); print(torch.cuda.get_device_name(0)); assert torch.cuda.is_available()'
 
 curl -fsS http://127.0.0.1:8000/health/ready
+# 使用 compose.server-reuse.yaml 时改为 8010：
+curl -fsS http://127.0.0.1:8010/health/ready
 ```
 
 服务器复用模式请把基础文件替换为 `compose.server-reuse.yaml`，健康检查端口使用 `8010`。
