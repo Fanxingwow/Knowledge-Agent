@@ -84,6 +84,24 @@ curl http://127.0.0.1:8000/health/ready
 - Web 控制台：<http://127.0.0.1:8000/console>
 - OpenAPI：<http://127.0.0.1:8000/docs>
 - MinIO 控制台：<http://127.0.0.1:9001>
+- Milvus gRPC 地址：`127.0.0.1:19530`
+- Milvus 健康检查：<http://127.0.0.1:9091/healthz>
+
+### Milvus 连接地址
+
+Milvus 本身不提供浏览器管理页面，本项目也没有内置 Attu。请根据访问方选择地址：
+
+| 部署方式/访问方 | Milvus 地址 | 用途 |
+| --- | --- | --- |
+| 完整 Compose 栈中的 API 容器 | `http://milvus:19530` | 应用内部连接，Compose 已自动配置 |
+| 完整 Compose 栈所在服务器 | `127.0.0.1:19530` | `pymilvus`、SDK 或服务器本地管理工具 |
+| 完整 Compose 栈健康检查 | `http://127.0.0.1:9091/healthz` | 检查 Milvus 进程状态 |
+| 服务器复用模式中的 API 容器 | `http://host.docker.internal:19530` | Milvus 运行在 Docker 宿主机时的默认 `MILVUS_URL` |
+
+完整服务栈默认通过 `MILVUS_BIND_ADDRESS=127.0.0.1` 将 `19530` 和 `9091` 端口只绑定到
+服务器回环地址，因此其他电脑不能直接访问，生产环境也建议保持私有。服务器复用模式需要在
+`deploy/server-reuse.env` 中设置 `MILVUS_URL`，该地址必须能从 **API 容器内部**访问；不要填写
+`127.0.0.1`，否则它指向的是 API 容器自身，而不是宿主机上的 Milvus。
 
 示例配置默认不启用导入和检索。配置真实 BGE-M3 模型与 MinerU 后，将
 `IMPORT_ENABLED` 和 `SEARCH_ENABLED` 改为 `true`。完整说明见

@@ -124,6 +124,27 @@ Open:
 - Web console: <http://127.0.0.1:8000/console>
 - OpenAPI: <http://127.0.0.1:8000/docs>
 - MinIO console: <http://127.0.0.1:9001>
+- Milvus gRPC endpoint: `127.0.0.1:19530`
+- Milvus health endpoint: <http://127.0.0.1:9091/healthz>
+
+### Milvus connection addresses
+
+Milvus does not provide a browser management page, and this repository does
+not bundle Attu. Use the address appropriate to the caller:
+
+| Deployment/caller | Milvus address | Purpose |
+| --- | --- | --- |
+| Full Compose stack, API container | `http://milvus:19530` | Internal application connection; already configured by Compose |
+| Full Compose stack, server host | `127.0.0.1:19530` | `pymilvus`, SDK or local administration tools |
+| Full Compose stack, health probe | `http://127.0.0.1:9091/healthz` | Returns Milvus process health |
+| Server-reuse mode, API container | `http://host.docker.internal:19530` | Default `MILVUS_URL` when Milvus runs on the Docker host |
+
+The full stack binds ports `19530` and `9091` to loopback by default through
+`MILVUS_BIND_ADDRESS=127.0.0.1`; they are therefore not reachable from another
+computer. Keep this private in production. For server-reuse mode, set
+`MILVUS_URL` in `deploy/server-reuse.env` to the address reachable **from the
+API container**, not to `127.0.0.1` (which would refer to the API container
+itself).
 
 The default example keeps import and search disabled until a real BGE-M3 model
 and MinerU credentials are configured. See
