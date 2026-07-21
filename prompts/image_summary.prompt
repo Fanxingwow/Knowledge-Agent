@@ -1,0 +1,2 @@
+这是“{root_folder}”文件中的一张图片，图片上文部分为“{image_content[0]}”，
+下文部分为“{image_content[1]}”，请用中文简要总结这张图片的内容，用于 Markdown 图片标题，控制在50字以内。

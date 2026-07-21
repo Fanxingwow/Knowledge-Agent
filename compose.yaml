@@ -1,0 +1,567 @@
+name: ${COMPOSE_PROJECT_NAME:-knowledge-agent}
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - backend
+  logging: *default-logging
+
+services:
+  mongo-keyfile-init:
+    image: ${ALPINE_IMAGE:-alpine:3.21.3}
+    restart: "no"
+    user: "0:0"
+    environment:
+      MONGO_REPLICA_KEY: ${MONGO_REPLICA_KEY:?set MONGO_REPLICA_KEY}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$${#MONGO_REPLICA_KEY}" -lt 32 ]; then
+          echo "MONGO_REPLICA_KEY must contain at least 32 characters" >&2
+          exit 1
+        fi
+        case "$${MONGO_REPLICA_KEY}" in
+          *[!A-Za-z0-9+/=]*)
+            echo "MONGO_REPLICA_KEY must be base64-compatible" >&2
+            exit 1
+            ;;
+        esac
+        umask 077
+        printf '%s' "$${MONGO_REPLICA_KEY}" > /data/configdb/keyfile
+        chown 999:999 /data/configdb/keyfile
+        chmod 0400 /data/configdb/keyfile
+    volumes:
+      - mongo_config:/data/configdb
+    networks:
+      - backend
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  mongo:
+    <<: *service-defaults
+    image: ${MONGO_IMAGE:-mongo:7.0.37-jammy}
+    depends_on:
+      mongo-keyfile-init:
+        condition: service_completed_successfully
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?set MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
+    command:
+      - mongod
+      - --bind_ip_all
+      - --port
+      - "27017"
+      - --replSet
+      - ${MONGO_REPLICA_SET_NAME:-rs0}
+      - --keyFile
+      - /data/configdb/keyfile
+    ports:
+      - "${MONGO_BIND_ADDRESS:-127.0.0.1}:${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet
+          --host 127.0.0.1
+          --port 27017
+          --username "$${MONGO_INITDB_ROOT_USERNAME}"
+          --password "$${MONGO_INITDB_ROOT_PASSWORD}"
+          --authenticationDatabase admin
+          --eval "quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 2)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+
+  mongo-rs-init:
+    image: ${MONGO_IMAGE:-mongo:7.0.37-jammy}
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      HOME: /tmp
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?set MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
+      MONGO_REPLICA_SET_NAME: ${MONGO_REPLICA_SET_NAME:-rs0}
+      MONGO_APP_DATABASE: ${MONGO_APP_DATABASE:-knowledge_base}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?set MONGO_APP_USERNAME}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?set MONGO_APP_PASSWORD}
+    entrypoint:
+      - /bin/bash
+      - -ec
+    command:
+      - >-
+        exec mongosh --quiet
+        --host mongo
+        --port 27017
+        --username "$${MONGO_INITDB_ROOT_USERNAME}"
+        --password "$${MONGO_INITDB_ROOT_PASSWORD}"
+        --authenticationDatabase admin
+        /deploy/init-replica-set.js
+    volumes:
+      - ./deploy/mongo/init-replica-set.js:/deploy/init-replica-set.js:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks:
+      - backend
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    <<: *service-defaults
+    image: ${REDIS_IMAGE:-redis:7.4.2-alpine}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "60"
+      - "1000"
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    ports:
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q PONG
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  mineru-gateway:
+    <<: *service-defaults
+    image: ${API_IMAGE:-knowledge-agent:local}
+    command:
+      - uvicorn
+      - app.gateways.mineru_gateway:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --no-server-header
+      - --timeout-keep-alive
+      - "5"
+      - --timeout-graceful-shutdown
+      - "45"
+    environment:
+      IMPORT_WORK_ROOT: /tmp/imports
+      HF_HOME: /tmp/huggingface
+      MODELSCOPE_CACHE: /tmp/modelscope
+      LOG_FILE_ENABLE: "false"
+      MINERU_GATEWAY_AUTH_TOKEN: ${MINERU_GATEWAY_AUTH_TOKEN:-}
+      MINERU_UPSTREAM_API_TOKEN: ${MINERU_UPSTREAM_API_TOKEN:-}
+      MINERU_UPSTREAM_BASE_URL: ${MINERU_UPSTREAM_BASE_URL:-https://mineru.net/api/v4}
+      MINERU_UPSTREAM_MODEL_VERSION: ${MINERU_UPSTREAM_MODEL_VERSION:-vlm}
+      MINERU_GATEWAY_TOTAL_TIMEOUT_SECONDS: ${MINERU_GATEWAY_TOTAL_TIMEOUT_SECONDS:-540}
+      MINERU_GATEWAY_MAX_CONCURRENCY: ${MINERU_GATEWAY_MAX_CONCURRENCY:-2}
+      MINERU_GATEWAY_ALLOWED_DOWNLOAD_HOSTS: ${MINERU_GATEWAY_ALLOWED_DOWNLOAD_HOSTS:-.aliyuncs.com,.openxlab.org.cn,mineru.net}
+    expose:
+      - "8080"
+    volumes:
+      - api_logs:/app/logs
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1g,uid=10001,gid=10001
+      - /home/app:rw,noexec,nosuid,size=16m,uid=10001,gid=10001
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+              "http://127.0.0.1:8080/live",
+              timeout=3,
+          ).read()
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    stop_grace_period: 60s
+    init: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+
+  minio:
+    <<: *service-defaults
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    ports:
+      - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - mc
+        - ready
+        - local
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-05-24T09-08-49Z}
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_INIT_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_APP_BUCKET: ${MINIO_APP_BUCKET:-knowledge-agent-files}
+      MINIO_MILVUS_BUCKET: ${MINIO_MILVUS_BUCKET:-a-bucket}
+      MINIO_APP_ACCESS_KEY: ${MINIO_APP_ACCESS_KEY:?set MINIO_APP_ACCESS_KEY}
+      MINIO_APP_SECRET_KEY: ${MINIO_APP_SECRET_KEY:?set MINIO_APP_SECRET_KEY}
+      MINIO_MILVUS_ACCESS_KEY: ${MINIO_MILVUS_ACCESS_KEY:?set MINIO_MILVUS_ACCESS_KEY}
+      MINIO_MILVUS_SECRET_KEY: ${MINIO_MILVUS_SECRET_KEY:?set MINIO_MILVUS_SECRET_KEY}
+    entrypoint:
+      - /bin/sh
+      - /deploy/init.sh
+    volumes:
+      - ./deploy/minio/init.sh:/deploy/init.sh:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    networks:
+      - backend
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  etcd:
+    <<: *service-defaults
+    image: ${ETCD_IMAGE:-quay.io/coreos/etcd:v3.5.25}
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command:
+      - etcd
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test:
+        - CMD
+        - etcdctl
+        - endpoint
+        - health
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 10s
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+
+  milvus:
+    <<: *service-defaults
+    image: ${MILVUS_IMAGE:-milvusdb/milvus:v2.6.19}
+    command:
+      - milvus
+      - run
+      - standalone
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_MILVUS_ACCESS_KEY:?set MINIO_MILVUS_ACCESS_KEY}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_MILVUS_SECRET_KEY:?set MINIO_MILVUS_SECRET_KEY}
+      MINIO_BUCKET_NAME: ${MINIO_MILVUS_BUCKET:-a-bucket}
+      MINIO_USE_SSL: "false"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "${MILVUS_BIND_ADDRESS:-127.0.0.1}:${MILVUS_PORT:-19530}:19530"
+      - "${MILVUS_BIND_ADDRESS:-127.0.0.1}:${MILVUS_HEALTH_PORT:-9091}:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - http://127.0.0.1:9091/healthz
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 90s
+    stop_grace_period: 90s
+    security_opt:
+      - seccomp:unconfined
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+  api:
+    <<: *service-defaults
+    image: ${API_IMAGE:-knowledge-agent:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12.10}
+        UV_VERSION: ${UV_VERSION:-0.9.26}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
+        APP_UID: ${APP_UID:-10001}
+        APP_GID: ${APP_GID:-10001}
+    depends_on:
+      mineru-gateway:
+        condition: service_healthy
+      mongo-rs-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PROJECT_ROOT: /app
+      IMPORT_WORK_ROOT: /var/lib/knowledge-agent/imports
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://127.0.0.1:8000}
+
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      AUTH_ISSUER: ${AUTH_ISSUER:-}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-}
+      AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
+      AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:-}
+      AUTH_ALGORITHMS: ${AUTH_ALGORITHMS:-RS256}
+      AUTH_DEV_TENANT_ID: ${AUTH_DEV_TENANT_ID:-local-dev}
+
+      IMPORT_ENABLED: ${IMPORT_ENABLED:-false}
+      IMPORT_REPOSITORY: ${IMPORT_REPOSITORY:-mongo}
+      IMPORT_REQUIRE_IDEMPOTENCY_KEY: ${IMPORT_REQUIRE_IDEMPOTENCY_KEY:-true}
+      IMPORT_WORKER_ENABLED: ${IMPORT_WORKER_ENABLED:-true}
+      IMPORT_SHUTDOWN_GRACE_SECONDS: ${IMPORT_SHUTDOWN_GRACE_SECONDS:-30}
+
+      SEARCH_ENABLED: ${SEARCH_ENABLED:-false}
+      CHAT_ENABLED: ${CHAT_ENABLED:-true}
+      CHAT_SSE_BROKER: ${CHAT_SSE_BROKER:-redis}
+
+      MONGO_URL: "mongodb://${MONGO_APP_USERNAME:?set MONGO_APP_USERNAME}:${MONGO_APP_PASSWORD:?set MONGO_APP_PASSWORD}@mongo:27017/${MONGO_APP_DATABASE:-knowledge_base}?authSource=${MONGO_APP_DATABASE:-knowledge_base}&replicaSet=${MONGO_REPLICA_SET_NAME:-rs0}&retryWrites=true&w=majority"
+      MONGO_DB_NAME: ${MONGO_APP_DATABASE:-knowledge_base}
+      MONGO_REQUIRE_REPLICA_SET: ${MONGO_REQUIRE_REPLICA_SET:-true}
+
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0"
+      REDIS_CHAT_KEY_HMAC_SECRET: ${REDIS_CHAT_KEY_HMAC_SECRET:?set REDIS_CHAT_KEY_HMAC_SECRET}
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-knowledge-agent:chat:v1}
+
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_APP_ACCESS_KEY:?set MINIO_APP_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_APP_SECRET_KEY:?set MINIO_APP_SECRET_KEY}
+      MINIO_BUCKET_NAME: ${MINIO_APP_BUCKET:-knowledge-agent-files}
+      MINIO_SECURE: "false"
+
+      MILVUS_URL: http://milvus:19530
+      MILVUS_DATABASE: ${MILVUS_DATABASE:-default}
+      CHUNKS_COLLECTION: ${CHUNKS_COLLECTION:-kb_chunks_v2}
+      ITEM_NAME_COLLECTION: ${ITEM_NAME_COLLECTION:-kb_item_names_v2}
+      IMPORT_PIPELINE_VERSION: ${IMPORT_PIPELINE_VERSION:-bge-m3.v1}
+      MILVUS_ALLOW_SCHEMA_CREATE: ${MILVUS_ALLOW_SCHEMA_CREATE:-true}
+
+      BGE_M3_PATH: /models/bge-m3
+      BGE_M3: ${BGE_M3:-BAAI/bge-m3}
+      BGE_DEVICE: ${BGE_DEVICE:-cpu}
+      BGE_FP16: ${BGE_FP16:-false}
+      BGE_RERANKER_LARGE: ${BGE_RERANKER_LARGE:-}
+      BGE_RERANKER_DEVICE: ${BGE_RERANKER_DEVICE:-cpu}
+      BGE_RERANKER_FP16: ${BGE_RERANKER_FP16:-false}
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-}
+      VL_MODEL: ${VL_MODEL:-}
+      MINERU_API_TOKEN: ${MINERU_GATEWAY_AUTH_TOKEN:-}
+      MINERU_BASE_URL: ${MINERU_BASE_URL:-http://mineru-gateway:8080}
+
+      HF_HOME: /var/cache/knowledge-agent/huggingface
+      MODELSCOPE_CACHE: /var/cache/knowledge-agent/modelscope
+      MODELSCOPE_OFFLINE: ${MODELSCOPE_OFFLINE:-1}
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-1}
+
+      LOG_CONSOLE_ENABLE: ${LOG_CONSOLE_ENABLE:-true}
+      LOG_CONSOLE_LEVEL: ${LOG_CONSOLE_LEVEL:-INFO}
+      LOG_FILE_ENABLE: ${LOG_FILE_ENABLE:-true}
+      LOG_FILE_LEVEL: ${LOG_FILE_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-true}
+      LOG_DIAGNOSE: ${LOG_DIAGNOSE:-false}
+
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      METRICS_PATH: /metrics
+      METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:?set METRICS_AUTH_TOKEN}
+    ports:
+      - "${API_BIND_ADDRESS:-0.0.0.0}:${API_PORT:-8000}:8000"
+    volumes:
+      - api_imports:/var/lib/knowledge-agent/imports
+      - api_logs:/app/logs
+      - api_cache:/var/cache/knowledge-agent
+      - ${BGE_M3_HOST_PATH:-./deploy/models/bge-m3}:/models/bge-m3:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1g,uid=10001,gid=10001
+      - /home/app:rw,noexec,nosuid,size=64m,uid=10001,gid=10001
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+              "http://127.0.0.1:8000/health/ready",
+              timeout=5,
+          ).read()
+      interval: 15s
+      timeout: 8s
+      retries: 12
+      start_period: 120s
+    stop_grace_period: 60s
+    init: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 1024
+    shm_size: 1gb
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+  prometheus-init:
+    image: ${ALPINE_IMAGE:-alpine:3.21.3}
+    profiles:
+      - observability
+    restart: "no"
+    user: "0:0"
+    environment:
+      METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:?set METRICS_AUTH_TOKEN}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$${#METRICS_AUTH_TOKEN}" -lt 32 ]; then
+          echo "METRICS_AUTH_TOKEN must contain at least 32 characters" >&2
+          exit 1
+        fi
+        umask 077
+        printf '%s' "$${METRICS_AUTH_TOKEN}" > /run/metrics/token
+        chown -R 65532:65532 /run/metrics /prometheus
+        chmod 0400 /run/metrics/token
+    volumes:
+      - prometheus_auth:/run/metrics
+      - prometheus_data:/prometheus
+    networks:
+      - backend
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  prometheus:
+    <<: *service-defaults
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.13.1-distroless}
+    profiles:
+      - observability
+    user: "65532:65532"
+    depends_on:
+      prometheus-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_auth:/run/metrics:ro
+      - prometheus_data:/prometheus
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  api_cache:
+  api_imports:
+  api_logs:
+  etcd_data:
+  milvus_data:
+  minio_data:
+  mongo_config:
+  mongo_data:
+  prometheus_auth:
+  prometheus_data:
+  redis_data:

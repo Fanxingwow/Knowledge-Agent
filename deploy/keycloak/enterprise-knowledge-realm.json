@@ -1,0 +1,123 @@
+{
+  "realm": "${KEYCLOAK_REALM}",
+  "displayName": "企业智能知识库问答",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxTemporaryLockouts": 0,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "roles": {
+    "realm": [
+      {
+        "name": "reader",
+        "description": "Read enterprise knowledge and chat history"
+      },
+      {
+        "name": "chat-user",
+        "description": "Create and manage only the authenticated user's conversations"
+      },
+      {
+        "name": "editor",
+        "description": "Upload and publish enterprise knowledge"
+      },
+      {
+        "name": "admin",
+        "description": "Administer the enterprise knowledge application"
+      }
+    ]
+  },
+  "defaultRoles": [
+    "reader",
+    "chat-user"
+  ],
+  "clients": [
+    {
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "name": "企业智能知识库问答 Web 控制台",
+      "description": "OIDC public client using Authorization Code and PKCE",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": true,
+      "protocol": "openid-connect",
+      "rootUrl": "${CONSOLE_PUBLIC_ORIGIN}",
+      "baseUrl": "/console",
+      "adminUrl": "${CONSOLE_PUBLIC_ORIGIN}",
+      "redirectUris": [
+        "${CONSOLE_PUBLIC_ORIGIN}/console*"
+      ],
+      "webOrigins": [
+        "${CONSOLE_PUBLIC_ORIGIN}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${CONSOLE_PUBLIC_ORIGIN}/console*"
+      },
+      "protocolMappers": [
+        {
+          "name": "enterprise-tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "tenant_id",
+            "claim.value": "${AUTH_TENANT_ID}",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "enterprise-realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "enterprise-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "${KEYCLOAK_CLIENT_ID}",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality, tests and RAG gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      UV_FROZEN: "1"
+      UV_NO_PROGRESS: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Verify lock file
+        run: uv lock --check
+
+      - name: Lint enterprise modules
+        run: >-
+          uv run --frozen ruff check
+          app/api app/core app/gateways app/services app/infrastructure app/ops eval
+          tests/api tests/deployment tests/evaluation
+          tests/unit/core tests/unit/gateways tests/unit/infrastructure
+          tests/unit/ops tests/unit/services scripts
+
+      - name: Type-check enterprise modules
+        run: >-
+          uv run --frozen mypy
+          app/api app/core app/gateways app/services app/infrastructure app/ops eval scripts
+          tests/deployment
+
+      - name: Scan tracked files for secrets
+        run: uv run --frozen python scripts/ci/check_secrets.py
+
+      - name: Run the full test suite
+        run: uv run --frozen pytest -q --basetemp=.pytest-tmp-ci
+
+      - name: Enforce tenant-safe RAG quality thresholds
+        run: >-
+          uv run --frozen python -m eval.rag_retrieval
+          --cases eval/fixtures/rag_retrieval_cases.v1.jsonl
+          --results eval/fixtures/rag_retrieval_results.v1.jsonl
+
+  deployment-contract:
+    name: Container deployment contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate Compose model
+        run: |
+          docker compose --env-file deploy/compose.env.example config --quiet
+          docker compose \
+            -f compose.server-reuse.yaml \
+            --env-file deploy/server-reuse.env.example \
+            config --quiet
+
+      - name: Run Dockerfile build checks
+        run: docker build --check .
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Reject vulnerable dependency changes
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="企业智能知识库问答控制台">
+  <title>企业智能知识库问答</title>
+  <link rel="stylesheet" href="/console/assets/console.css?v=20260720.4">
+  <script src="/console/assets/console.js?v=20260720.4" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">企</div>
+        <div>
+          <div class="brand-name">企业智能知识库问答</div>
+          <div class="brand-caption">Enterprise Knowledge AI</div>
+        </div>
+        <button class="icon-button sidebar-close" id="sidebarClose" type="button" aria-label="关闭侧栏">×</button>
+      </div>
+
+      <button class="new-chat-button" id="newChatButton" type="button">
+        <span aria-hidden="true">＋</span>
+        新建对话
+      </button>
+
+      <nav class="primary-nav" aria-label="主导航">
+        <button class="nav-item is-active" type="button" data-view="chat" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          智能问答
+        </button>
+        <button class="nav-item" type="button" data-view="knowledge">
+          <span class="nav-icon" aria-hidden="true">▤</span>
+          知识库
+        </button>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="section-heading">
+          <span>最近会话</span>
+          <button class="text-button" id="refreshSessionsButton" type="button">刷新</button>
+        </div>
+        <div class="session-list" id="sessionList" aria-live="polite">
+          <div class="sidebar-placeholder">正在载入会话…</div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="account-card" id="authButton" type="button">
+          <span class="account-avatar" aria-hidden="true">企</span>
+          <span class="account-copy">
+            <strong>企业账户</strong>
+            <small id="authStatus">正在检查登录状态</small>
+          </span>
+          <span aria-hidden="true">›</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+
+    <main class="main-stage">
+      <header class="topbar">
+        <div class="topbar-title">
+          <button class="icon-button mobile-menu" id="mobileMenuButton" type="button" aria-label="打开侧栏">☰</button>
+          <div>
+            <h1 id="viewTitle">企业智能知识库问答</h1>
+            <p id="viewSubtitle">基于企业知识库的可信回答</p>
+          </div>
+        </div>
+        <div class="system-badges" aria-label="服务状态">
+          <span class="status-badge is-loading" id="serviceBadge"><i></i>服务检测中</span>
+          <span class="status-badge is-loading" id="knowledgeBadge"><i></i>知识检索</span>
+          <span class="status-badge is-loading" id="importBadge"><i></i>文档导入</span>
+        </div>
+      </header>
+
+      <section class="view-panel chat-view is-active" id="chatView" aria-labelledby="viewTitle">
+        <div class="chat-scroll" id="chatScroll">
+          <div class="welcome-panel" id="welcomePanel">
+            <div class="welcome-orbit" aria-hidden="true">
+              <span>AI</span>
+            </div>
+            <p class="eyebrow">ENTERPRISE KNOWLEDGE ASSISTANT</p>
+            <h2>今天想了解什么？</h2>
+            <p class="welcome-copy">我会检索已发布的企业资料，并在回答中标注引用来源。</p>
+            <div class="suggestion-grid">
+              <button class="suggestion-card" type="button" data-prompt="请概括当前知识库中最重要的产品信息">
+                <span>知识概览</span>
+                <strong>总结核心产品信息</strong>
+              </button>
+              <button class="suggestion-card" type="button" data-prompt="请根据知识库说明标准操作流程和注意事项">
+                <span>流程查询</span>
+                <strong>查找操作步骤与规范</strong>
+              </button>
+              <button class="suggestion-card" type="button" data-prompt="当前知识库包含哪些资料？请按主题归纳">
+                <span>资料导航</span>
+                <strong>了解可查询内容</strong>
+              </button>
+            </div>
+          </div>
+          <div class="message-list" id="messageList" aria-live="polite"></div>
+        </div>
+
+        <div class="composer-zone">
+          <div class="composer">
+            <textarea id="messageInput" rows="1" maxlength="2048" placeholder="输入问题，Enter 发送，Shift + Enter 换行" aria-label="输入问题"></textarea>
+            <div class="composer-actions">
+              <button class="composer-tool" id="openUploadButton" type="button" title="上传知识文件">
+                <span aria-hidden="true">＋</span> 上传资料
+              </button>
+              <span class="composer-hint" id="composerHint">检索 5 条相关资料</span>
+              <button class="send-button" id="sendButton" type="button" aria-label="发送消息">↑</button>
+            </div>
+          </div>
+          <p class="disclaimer">Agent 的回答可能存在偏差，请结合引用原文核验重要信息。</p>
+        </div>
+      </section>
+
+      <section class="view-panel knowledge-view" id="knowledgeView" aria-labelledby="viewTitle" hidden>
+        <div class="knowledge-layout">
+          <div class="knowledge-heading">
+            <div>
+              <p class="eyebrow">KNOWLEDGE INGESTION</p>
+              <h2>企业知识库</h2>
+              <p>上传文档后将自动完成 MinerU 解析、BGE-M3 向量化和 Milvus 发布。</p>
+            </div>
+            <button class="secondary-button" id="refreshHealthButton" type="button">刷新服务状态</button>
+          </div>
+
+          <div class="knowledge-grid">
+            <section class="surface upload-surface" aria-labelledby="uploadTitle">
+              <div class="surface-heading">
+                <div>
+                  <p class="surface-kicker">01 · 导入</p>
+                  <h3 id="uploadTitle">上传知识文件</h3>
+                </div>
+                <span class="format-pill">PDF / Markdown</span>
+              </div>
+              <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="选择或拖拽上传文件">
+                <input id="fileInput" type="file" accept=".pdf,.md,.markdown,application/pdf,text/markdown" multiple hidden>
+                <div class="drop-icon" aria-hidden="true">⇧</div>
+                <strong>拖拽文件到这里</strong>
+                <span>或点击选择文件，支持一次上传多个文档</span>
+                <button class="primary-button" id="selectFilesButton" type="button">选择文件</button>
+              </div>
+              <div class="upload-queue" id="uploadQueue" aria-live="polite">
+                <div class="empty-state compact">暂时没有导入任务</div>
+              </div>
+            </section>
+
+            <section class="surface search-surface" aria-labelledby="searchTitle">
+              <div class="surface-heading">
+                <div>
+                  <p class="surface-kicker">02 · 验证</p>
+                  <h3 id="searchTitle">检索验证</h3>
+                </div>
+                <span class="format-pill accent">Hybrid Search</span>
+              </div>
+              <form class="search-form" id="searchForm">
+                <label for="searchInput">检索问题</label>
+                <div class="search-input-row">
+                  <input id="searchInput" type="search" maxlength="2048" placeholder="输入刚刚上传的关键短语" required>
+                  <button class="primary-button" type="submit">开始检索</button>
+                </div>
+              </form>
+              <div class="search-results" id="searchResults" aria-live="polite">
+                <div class="empty-state">
+                  <span aria-hidden="true">⌕</span>
+                  <strong>等待检索</strong>
+                  <p>上传完成后，在这里验证知识是否已经发布。</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="auth-dialog" id="authDialog">
+    <div class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="surface-kicker">ENTERPRISE SIGN IN</p>
+          <h2 id="authDialogTitle">企业账户</h2>
+        </div>
+        <button class="icon-button" id="authDialogCloseButton" type="button" aria-label="关闭">×</button>
+      </div>
+      <p id="authDialogDescription">使用企业账户登录后，你的会话和问题将与其他用户独立保存。</p>
+      <div class="identity-card" id="authIdentity" hidden>
+        <span class="identity-avatar" id="authIdentityAvatar" aria-hidden="true">企</span>
+        <span class="identity-copy">
+          <strong id="authIdentityName">企业用户</strong>
+          <small id="authIdentityMeta">已安全登录</small>
+        </span>
+      </div>
+      <div class="security-note">
+        <span aria-hidden="true">✓</span>
+        <p>账号与密码由 Keycloak 统一管理，本系统不会读取或保存你的登录密码。</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="logoutButton" type="button" hidden>退出登录</button>
+        <button class="primary-button" id="loginButton" type="button">登录企业账户</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="confirm-dialog" id="deleteSessionDialog" aria-labelledby="deleteSessionTitle">
+    <div class="confirm-card">
+      <div class="confirm-icon" aria-hidden="true">!</div>
+      <div class="confirm-copy">
+        <h2 id="deleteSessionTitle">删除会话？</h2>
+        <p>“<span id="deleteSessionName">当前会话</span>”及其中的全部消息将被永久删除，此操作无法撤销。</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="cancelDeleteSessionButton" type="button">取消</button>
+        <button class="danger-button" id="confirmDeleteSessionButton" type="button">删除会话</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast-region" id="toastRegion" aria-live="assertive"></div>
+</body>
+</html>
